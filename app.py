@@ -745,10 +745,10 @@ st.markdown(
 @st.cache_data
 def load_data_safe():
     try:
-        contest = pd.read_csv("Contest.csv", low_memory=False)
-        user_master = pd.read_csv("User_Master.csv", low_memory=False)
-        user_log = pd.read_csv("User_Activity_Log.csv", low_memory=False)
-        mapping = pd.read_csv("wnc_category_detail_tb.csv", low_memory=False)
+        contest = pd.read_parquet("Contest.parquet")
+        user_master = pd.read_parquet("User_Master.parquet")
+        user_log = pd.read_parquet("User_Activity_Log.parquet")
+        mapping = pd.read_parquet("wnc_category_detail_tb.parquet")
     except Exception as e:
         st.error(f"데이터 로딩 실패: {e}")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
