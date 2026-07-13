@@ -5,11 +5,9 @@ from recommender import Recommender
 
 app = FastAPI()
 
-# 파일 절대 경로 설정 (Vercel 환경 대응)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SIM_NOW = pd.Timestamp("2023-02-11")
 
-# 데이터 미리 로드 (서버 실행 시 1회만)
 try:
     contest_df = pd.read_parquet(os.path.join(BASE_DIR, "Contest.parquet"))
     user_master = pd.read_parquet(os.path.join(BASE_DIR, "User_Master.parquet"))
@@ -25,7 +23,8 @@ except Exception as e:
     recommender = None
     print(f"Data Load Error: {e}")
 
-@app.get("/api/recommend/{user_id}")
+# 🚨 수정된 부분: URL 경로에 {user_id}를 빼고, 파라미터로 받습니다.
+@app.get("/api/recommend")
 def get_recommendation(user_id: str):
     if not recommender:
         return {"error": "엔진이 로드되지 않았습니다."}
@@ -35,7 +34,6 @@ def get_recommendation(user_id: str):
     if recs is None or recs.empty:
         return {"user_id": user_id, "segment": segment, "recommendations": []}
 
-    # DataFrame 내 NaN 값을 None으로 변환하여 JSON 직렬화 에러 방지
     recs = recs.fillna("")
     recs_json = recs.to_dict(orient="records")
     
