@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "api/recommend.py": {
-      "runtime": "python3.12"
-    }
-  }
-}
