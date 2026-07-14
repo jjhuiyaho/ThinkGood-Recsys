@@ -49,10 +49,10 @@ function extractKeywords(text: string, topK: number = 8) {
   if (!text) return [];
   const matches = text.match(/[가-힣A-Za-z0-9]{2,}/g) || [];
   const tokens = matches.map((t) => t.toLowerCase()).filter((t) => !STOPWORDS.has(t));
-  
+
   const counts: Record<string, number> = {};
   tokens.forEach(t => counts[t] = (counts[t] || 0) + 1);
-  
+
   return Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, topK)
@@ -69,7 +69,7 @@ export default function AdminContestRegister() {
   const [companies, setCompanies] = useState(["씽굿", "KOSA", "OO대학교", "OO재단"]);
   const [managers, setManagers] = useState(["admin01", "manager02", "staff03"]);
   const [records, setRecords] = useState<any[]>([]);
-  
+
   // 폼 상태
   const [status, setStatus] = useState(STATUS_OPTIONS[0]);
   const [hostOrgTypes, setHostOrgTypes] = useState<string[]>([]);
@@ -89,7 +89,7 @@ export default function AdminContestRegister() {
   const [region, setRegion] = useState("(선택)");
   const [prize1stAmount, setPrize1stAmount] = useState<number>(0);
   const [posterName, setPosterName] = useState<string | null>(null);
-  
+
   const [managerSearch, setManagerSearch] = useState("");
   const [managerId, setManagerId] = useState("");
   const [newManager, setNewManager] = useState("");
@@ -135,7 +135,7 @@ export default function AdminContestRegister() {
 
     // 자동 파싱
     const { ageMin, ageMax, conditionType, keywordHit } = parseEligibility(eligibilityRaw);
-    
+
     // AI 키워드 추출
     const combinedText = [projectName, guideApplyPart, guideTopic, guidePrizeDetail, guideSchedule, guideSubmitMethod, guideJudgingCriteria, guideNotes].join(" ");
     const aiKeywords = extractKeywords(combinedText, 8);
@@ -210,8 +210,8 @@ export default function AdminContestRegister() {
             ⬅️ 메인 홈으로 돌아가기
           </button>
         </Link>
-        <label style={{ cursor: "pointer", ... }}>
-          <input type="checkbox" ... /> 관리자 모드 ON
+        <label style={{ cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="checkbox" checked={adminMode} onChange={(e) => setAdminMode(e.target.checked)} /> 관리자 모드 ON
         </label>
       </aside>
 
@@ -220,7 +220,7 @@ export default function AdminContestRegister() {
           <h1 style={{ marginBottom: "10px" }}>관리자용 공모전 등록 (정형 데이터 중심 · 데모용)</h1>
           <form style={styles.section} onSubmit={handleSubmit}>
             <h3>기본 정보</h3>
-            
+
             <label style={styles.label}>상태(status)</label>
             <div style={{ display: "flex", gap: 16 }}>
               {STATUS_OPTIONS.map(opt => (
