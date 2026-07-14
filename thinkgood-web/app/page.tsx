@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 type Rec = Record<string, any>;
 
@@ -94,13 +95,7 @@ function ContestCard({ item, debugMode, onOpen }: { item: Rec; debugMode: boolea
         <div className="preview-bar">
           <span className="preview-label">종합 적합도</span>
           <span className="preview-score">{score}점</span>
-
-
-
-
-
-
-
+          
         </div>
       )}
     </div>
@@ -252,10 +247,16 @@ function Sidebar({
     <aside style={{ width: 280, flexShrink: 0 }}>
       <div className="profile-box" style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 800, marginBottom: 10 }}>관리자 메뉴</div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.9rem", cursor: "pointer" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.9rem", cursor: "pointer", marginBottom: 10 }}>
           <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
-          분석 모드
+          분석 모드 (로컬 토글)
         </label>
+
+        <Link href="/admin">
+          <button className="btn-outline" style={{ width: "100%", background: "#f8f9fa", color: "#1976D2", fontWeight: "bold" }}>
+            관리자 페이지 이동 ➔
+          </button>
+        </Link>
       </div>
 
       <div className="profile-box" style={{ marginBottom: 16 }}>
