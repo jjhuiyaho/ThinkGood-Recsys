@@ -89,18 +89,10 @@ function ContestCard({ item, debugMode, onOpen }: { item: Rec; debugMode: boolea
           상세보기
         </button>
       </div>
-      {/* 🚨 기존 뷰어 살리면서 분석 내용이 보이도록 수정 */}
       {debugMode && (
-        <div className="preview-bar" style={{ padding: "8px", background: "#f8f9fa", borderTop: "1px solid #eee", fontSize: "0.8rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold", marginBottom: "4px" }}>
-            <span className="preview-label">종합 적합도</span>
-            <span className="preview-score">{score}점</span>
-          </div>
-          {item.contrib_text && (
-            <div style={{ color: "#666", fontSize: "0.75rem", marginTop: "4px" }}>
-              {item.contrib_text}
-            </div>
-          )}
+        <div className="preview-bar">
+          <span className="preview-label">종합 적합도</span>
+          <span className="preview-score">{score}점</span>
         </div>
       )}
     </div>
@@ -320,6 +312,7 @@ export default function Home() {
   const [selectedItem, setSelectedItem] = useState<Rec | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // 최초 로드: GUEST 추천 (비로그인 기본 화면 + 사이드바 전략 정보)
   useEffect(() => {
     (async () => {
       setLoading(true);
