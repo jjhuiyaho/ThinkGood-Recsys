@@ -1,16 +1,17 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import pandas as pd
 import numpy as np
 import os
 import gc
+import ctypes
 import threading
 from collections import Counter
 from api.recommender import Recommender
 
 app = FastAPI()
 
-# CORS 설정 (모든 도메인에서 요청 가능하도록 허용)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +24,51 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SIM_NOW = pd.Timestamp("2023-02-11")
 
 # --------------------------------------------------
-# 코드 -> 한글 매핑 (Streamlit app.py와 동일)
+# 메모리 방어 유틸
+# --------------------------------------------------
+MEMORY_LIMIT_MB = 450  # 512MB 한도보다 낮게 잡아서 여유 확보
+
+try:
+    import psutil
+    _process = psutil.Process(os.getpid())
+
+    def get_memory_mb():
+        return _process.memory_info().rss / 1024 / 1024
+except ImportError:
+    def get_memory_mb():
+        return 0  # psutil 없으면 체크 스킵 (requirements.txt에 psutil 추가 권장)
+
+
+def trim_memory():
+    """glibc가 쥐고 있는 메모리를 OS에 강제로 반환 (파편화로 인한 메모리 누적 방지)"""
+    gc.collect()
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:
+        pass
+
+
+@app.middleware("http")
+async def memory_guard(request, call_next):
+    # 요청 전: 이미 위험 수위면 바로 차단하고 정리 시도
+    if get_memory_mb() > MEMORY_LIMIT_MB:
+        trim_memory()
+        if get_memory_mb() > MEMORY_LIMIT_MB:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "서버 메모리 부족으로 잠시 요청을 처리할 수 없습니다. 잠시 후 다시 시도해주세요."},
+            )
+
+    response = await call_next(request)
+
+    # 요청 후: 항상 정리
+    trim_memory()
+    return response
+
+
+# --------------------------------------------------
+# 코드 -> 한글 매핑
 # --------------------------------------------------
 MANUAL_CODES = {
     "HORG001": "중앙정부/기관", "HORG002": "공기업", "HORG003": "대기업",
@@ -81,7 +126,7 @@ CATEGORIES = [
 ]
 
 # --------------------------------------------------
-# 데이터 (지연 로딩용 전역 변수 — 아직 로드하지 않음)
+# 데이터 (지연 로딩 — 첫 요청에서만 실행)
 # --------------------------------------------------
 recommender = None
 contest_df = None
@@ -94,11 +139,9 @@ _load_lock = threading.Lock()
 
 
 def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
-    """object 컬럼은 category로, 정수/실수 컬럼은 다운캐스팅해서 메모리 절약"""
     for col in df.columns:
         col_dtype = df[col].dtype
         if col_dtype == "object":
-            # 고유값 비율이 낮을 때만 category로 변환 (너무 다양하면 효과 없음)
             n_unique = df[col].nunique(dropna=True)
             n_total = len(df[col])
             if n_total > 0 and n_unique / n_total < 0.5:
@@ -111,19 +154,16 @@ def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _load_data():
-    """실제 데이터 로딩. 서버 부팅 시가 아니라 첫 요청이 들어올 때 1회만 실행."""
     global contest_df, user_master, user_log, recommender, load_error, _data_loaded
 
     if _data_loaded:
         return
 
     with _load_lock:
-        if _data_loaded:  # 락 획득 대기 중 다른 요청이 이미 로드했을 수 있음
+        if _data_loaded:
             return
 
         try:
-            # 필요 없는 컬럼이 있다면 columns=[...] 파라미터로 제한해서 읽는 것이 가장 효과적입니다.
-            # 예) pd.read_parquet(path, columns=["contest_pk", "organ_nm", "putup_edt", ...])
             local_contest_df = pd.read_parquet(os.path.join(BASE_DIR, "Contest.parquet"))
             local_user_master = pd.read_parquet(os.path.join(BASE_DIR, "User_Master.parquet"))
             local_user_log = pd.read_parquet(os.path.join(BASE_DIR, "User_Activity_Log.parquet"))
@@ -154,9 +194,8 @@ def _load_data():
                 CODE_MAP.update(dict(zip(k_clean, v_clean)))
                 del map_df
             except Exception:
-                pass  # 매핑 파일이 없어도 MANUAL_CODES로 동작
+                pass
 
-            # 메모리 최적화 (category 변환 + 다운캐스팅)
             local_contest_df = _optimize_dtypes(local_contest_df)
             local_user_master = _optimize_dtypes(local_user_master)
             local_user_log = _optimize_dtypes(local_user_log)
@@ -172,7 +211,7 @@ def _load_data():
             load_error = str(e)
             print(f"Data Load Error: {e}")
         finally:
-            gc.collect()
+            trim_memory()
 
 
 # --------------------------------------------------
@@ -209,7 +248,6 @@ def ensure_dday(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def clean_records(df: pd.DataFrame):
-    """DataFrame -> JSON-safe list[dict], 화면에 필요한 파생 필드 추가"""
     df = df.copy()
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
@@ -271,7 +309,7 @@ def build_profile(user_id: str):
 # --------------------------------------------------
 @app.get("/api/recommend")
 def get_recommendation(user_id: str = Query(...), top_n: int = Query(12)):
-    _load_data()  # 첫 요청에서만 실제 로딩 발생
+    _load_data()
 
     if recommender is None:
         return {"error": f"엔진이 로드되지 않았습니다. ({load_error})"}
@@ -280,7 +318,7 @@ def get_recommendation(user_id: str = Query(...), top_n: int = Query(12)):
     recs = ensure_dday(recs) if recs is not None else recs
     recommendations = clean_records(recs) if recs is not None and not recs.empty else []
 
-    return {
+    result = {
         "user_id": user_id,
         "segment": segment,
         "segment_display": SEGMENT_DISPLAY.get(segment, segment),
@@ -290,11 +328,19 @@ def get_recommendation(user_id: str = Query(...), top_n: int = Query(12)):
         "recommendations": recommendations,
     }
 
+    del recs, recommendations
+    return result
+
 
 @app.get("/api/meta")
 def get_meta():
-    """프론트에서 데모 계정/카테고리 목록을 하드코딩하지 않도록 제공"""
     return {
         "demo_accounts": DEMO_ACCOUNTS,
         "categories": CATEGORIES,
     }
+
+
+@app.get("/api/health")
+def health():
+    """메모리 상태 확인용 (문제 생기면 이 엔드포인트로 먼저 확인)"""
+    return {"memory_mb": round(get_memory_mb(), 1), "data_loaded": _data_loaded}
