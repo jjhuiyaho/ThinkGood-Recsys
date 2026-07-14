@@ -31,7 +31,7 @@ const CATEGORIES = [
 ];
 
 async function fetchRecommend(userId: string, topN: number): Promise<ApiResponse> {
-  const res = await fetch(`/api/recommend?user_id=${encodeURIComponent(userId)}&top_n=${topN}`);
+  const res = await fetch(`https://thinkgood-recsys.onrender.com/api/recommend?user_id=${userId}`);
   if (!res.ok) throw new Error("API 요청 실패");
   return res.json();
 }
