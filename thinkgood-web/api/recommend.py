@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import os
-from recommender import Recommender
+from api.recommender import Recommender
 
 app = FastAPI()
 
