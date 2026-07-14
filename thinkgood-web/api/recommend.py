@@ -1,19 +1,16 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from collections import Counter
 import pandas as pd
-import numpy as np
 import os
-
 from recommender import Recommender
 
 app = FastAPI()
 
-# Vercel 서버리스 환경에서 프론트(같은 도메인)에서 호출하지만,
-# 로컬 개발 중 다른 포트에서 호출할 수도 있으니 CORS는 열어둡니다.
+# CORS 설정 (모든 도메인에서 요청 가능하도록 허용)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], 
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
