@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 
 // --------------------------------------------------
 // 1. Constants (admin/constants.py 역할)
@@ -203,8 +204,14 @@ export default function AdminContestRegister() {
     <div style={styles.container}>
       <aside style={styles.sidebar}>
         <h3>관리자 메뉴</h3>
-        <label style={{ cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: 8 }}>
-          <input type="checkbox" checked={adminMode} onChange={(e) => setAdminMode(e.target.checked)} /> 관리자 모드 ON
+        {/* 홈으로 돌아가는 버튼 */}
+        <Link href="/">
+          <button style={{ ...styles.btnOutline, width: "100%", marginBottom: "10px" }}>
+            ⬅️ 메인 홈으로 돌아가기
+          </button>
+        </Link>
+        <label style={{ cursor: "pointer", ... }}>
+          <input type="checkbox" ... /> 관리자 모드 ON
         </label>
       </aside>
 
