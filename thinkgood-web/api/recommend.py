@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import numpy as np
 import os
+import gc
+import threading
 from collections import Counter
 from api.recommender import Recommender
 
@@ -11,7 +13,7 @@ app = FastAPI()
 # CORS 설정 (모든 도메인에서 요청 가능하도록 허용)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,7 +81,7 @@ CATEGORIES = [
 ]
 
 # --------------------------------------------------
-# 데이터 로드
+# 데이터 (지연 로딩용 전역 변수 — 아직 로드하지 않음)
 # --------------------------------------------------
 recommender = None
 contest_df = None
@@ -87,38 +89,90 @@ user_master = None
 user_log = None
 load_error = None
 
-try:
-    contest_df = pd.read_parquet(os.path.join(BASE_DIR, "Contest.parquet"))
-    user_master = pd.read_parquet(os.path.join(BASE_DIR, "User_Master.parquet"))
-    user_log = pd.read_parquet(os.path.join(BASE_DIR, "User_Activity_Log.parquet"))
+_data_loaded = False
+_load_lock = threading.Lock()
 
-    contest_df["contest_pk"] = contest_df["contest_pk"].astype(str)
-    user_master["member_pk"] = user_master["member_pk"].astype(str)
-    if "member_pk" in user_log.columns:
-        user_log["member_pk"] = user_log["member_pk"].astype(str)
-    if "contest_pk" in user_log.columns:
-        user_log["contest_pk"] = user_log["contest_pk"].astype(str)
-    if "putup_edt" in contest_df.columns:
-        contest_df["putup_edt"] = pd.to_datetime(contest_df["putup_edt"], errors="coerce")
 
-    try:
-        map_df = pd.read_parquet(os.path.join(BASE_DIR, "wnc_category_detail_tb.parquet"))
-        if "category_detail_cd" in map_df.columns and "category_detail_nm" in map_df.columns:
-            keys, vals = map_df["category_detail_cd"], map_df["category_detail_nm"]
-        elif len(map_df.columns) >= 5:
-            keys, vals = map_df.iloc[:, 2], map_df.iloc[:, 4]
-        else:
-            keys, vals = map_df.iloc[:, 0], map_df.iloc[:, 1]
-        k_clean = keys.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
-        v_clean = vals.astype(str).str.strip()
-        CODE_MAP.update(dict(zip(k_clean, v_clean)))
-    except Exception:
-        pass  # 매핑 파일이 없어도 MANUAL_CODES로 동작
+def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """object 컬럼은 category로, 정수/실수 컬럼은 다운캐스팅해서 메모리 절약"""
+    for col in df.columns:
+        col_dtype = df[col].dtype
+        if col_dtype == "object":
+            # 고유값 비율이 낮을 때만 category로 변환 (너무 다양하면 효과 없음)
+            n_unique = df[col].nunique(dropna=True)
+            n_total = len(df[col])
+            if n_total > 0 and n_unique / n_total < 0.5:
+                df[col] = df[col].astype("category")
+        elif pd.api.types.is_integer_dtype(col_dtype):
+            df[col] = pd.to_numeric(df[col], downcast="integer")
+        elif pd.api.types.is_float_dtype(col_dtype):
+            df[col] = pd.to_numeric(df[col], downcast="float")
+    return df
 
-    recommender = Recommender(user_master, user_log, contest_df, now_ts=SIM_NOW)
-except Exception as e:
-    load_error = str(e)
-    print(f"Data Load Error: {e}")
+
+def _load_data():
+    """실제 데이터 로딩. 서버 부팅 시가 아니라 첫 요청이 들어올 때 1회만 실행."""
+    global contest_df, user_master, user_log, recommender, load_error, _data_loaded
+
+    if _data_loaded:
+        return
+
+    with _load_lock:
+        if _data_loaded:  # 락 획득 대기 중 다른 요청이 이미 로드했을 수 있음
+            return
+
+        try:
+            # 필요 없는 컬럼이 있다면 columns=[...] 파라미터로 제한해서 읽는 것이 가장 효과적입니다.
+            # 예) pd.read_parquet(path, columns=["contest_pk", "organ_nm", "putup_edt", ...])
+            local_contest_df = pd.read_parquet(os.path.join(BASE_DIR, "Contest.parquet"))
+            local_user_master = pd.read_parquet(os.path.join(BASE_DIR, "User_Master.parquet"))
+            local_user_log = pd.read_parquet(os.path.join(BASE_DIR, "User_Activity_Log.parquet"))
+
+            local_contest_df["contest_pk"] = local_contest_df["contest_pk"].astype(str)
+            local_user_master["member_pk"] = local_user_master["member_pk"].astype(str)
+            if "member_pk" in local_user_log.columns:
+                local_user_log["member_pk"] = local_user_log["member_pk"].astype(str)
+            if "contest_pk" in local_user_log.columns:
+                local_user_log["contest_pk"] = local_user_log["contest_pk"].astype(str)
+            if "putup_edt" in local_contest_df.columns:
+                local_contest_df["putup_edt"] = pd.to_datetime(
+                    local_contest_df["putup_edt"], errors="coerce"
+                )
+
+            try:
+                map_df = pd.read_parquet(
+                    os.path.join(BASE_DIR, "wnc_category_detail_tb.parquet")
+                )
+                if "category_detail_cd" in map_df.columns and "category_detail_nm" in map_df.columns:
+                    keys, vals = map_df["category_detail_cd"], map_df["category_detail_nm"]
+                elif len(map_df.columns) >= 5:
+                    keys, vals = map_df.iloc[:, 2], map_df.iloc[:, 4]
+                else:
+                    keys, vals = map_df.iloc[:, 0], map_df.iloc[:, 1]
+                k_clean = keys.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+                v_clean = vals.astype(str).str.strip()
+                CODE_MAP.update(dict(zip(k_clean, v_clean)))
+                del map_df
+            except Exception:
+                pass  # 매핑 파일이 없어도 MANUAL_CODES로 동작
+
+            # 메모리 최적화 (category 변환 + 다운캐스팅)
+            local_contest_df = _optimize_dtypes(local_contest_df)
+            local_user_master = _optimize_dtypes(local_user_master)
+            local_user_log = _optimize_dtypes(local_user_log)
+
+            contest_df = local_contest_df
+            user_master = local_user_master
+            user_log = local_user_log
+
+            recommender = Recommender(user_master, user_log, contest_df, now_ts=SIM_NOW)
+            _data_loaded = True
+
+        except Exception as e:
+            load_error = str(e)
+            print(f"Data Load Error: {e}")
+        finally:
+            gc.collect()
 
 
 # --------------------------------------------------
@@ -217,6 +271,8 @@ def build_profile(user_id: str):
 # --------------------------------------------------
 @app.get("/api/recommend")
 def get_recommendation(user_id: str = Query(...), top_n: int = Query(12)):
+    _load_data()  # 첫 요청에서만 실제 로딩 발생
+
     if recommender is None:
         return {"error": f"엔진이 로드되지 않았습니다. ({load_error})"}
 
